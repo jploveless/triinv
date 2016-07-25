@@ -1,0 +1,12 @@
+cl = 2;
+Point(1) = {0,-25,0,cl};
+Point(2) = {25,-25,-5,cl};
+Point(3) = {25,25,-5,cl};
+Point(4) = {0,25,0,cl};
+Line(1) = {1,2};
+Line(2) = {2,3};
+Line(3) = {3,4};
+Line(4) = {4,4};
+Line(5) = {4,1};
+Line Loop(6) = {5,1,2,3};
+Plane Surface(7) = {6};
