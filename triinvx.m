@@ -1,26 +1,37 @@
-function [u, g, w, We, d] = triinvx(s, p, beta, k, verttrim, nneg, varargin)
+function [u, g, w, We, d] = triinvx(s, p, beta, varargin)
 %
 % TRIINVX   Inverts surface displacements for slip on triangular mesh in Cartesian space.
-%    TRIINV(S, T, BETA, KERNEL, VT) inverts the displacements/velocities contained 
-%    in the .sta.data file S for slip on the triangular dislocation mesh defined
+%    TRIINV(S, T, BETA) inverts the displacements/velocities contained 
+%    in the structure S for slip on the triangular dislocation mesh defined
 %    in the file T, which can be in .mat or .msh format (see below), subject to the
-%    Laplacian smoothing constraint whose strength is defined as BETA.  The KERNEL 
-%    argument allows for specification of an existing matrix containing the triangular
-%    dislocation element partial derivatives, or the name of a file to which the partials
-%    will be saved. VT is a flag indicating whether vertical velocities should be ignored
-%    (VT = 1) or considered (VT = 0). 
+%    Laplacian smoothing constraint whose strength is defined as BETA. 
 %
-%    TRIINV(S, T, BETA, KERNEL, LOCK) also subjects the inversion to locking constraints
-%    on the up and/or downdip extents of the triangular mesh.  LOCK is a vector
-%    containing N or 3N elements, where N is the number of distinct patches in T.
-%    For example, to lock the updip row of elements while placing no constraints
-%    on the downdip extent, or lateral elements, LOCK = [1 0 0].  It is important
-%    to note that the locking procedure finds the up- and downdip elements assuming
-%    that the fault has been constructed using a depth contour constraint.  That is,
-%    updip elements are defined as those having 2 nodes at the maximum z-value (i.e.,
-%    shallowest), while downdip elements have 2 nodes at the minimum (most negative)
-%    z-value.  Lateral elements are simply edge-lining elements that belong to neither
-%    the up- nor downdip set.
+%    TRIINV(..., 'partials', G) enables specification of a pre-calculated matrix, 
+%    G, of partial derivatives relating slip on triangular dislocation elements to 
+%    displacement at observation coordinates. G should be 3*nObs-by-3*nTri.
+%
+%    TRIINV(..., 'lock', EDGES) subjects the inversion to locking (zero slip) 
+%    constraints on the updip, downdip, and/or lateral edges of the triangular mesh.  
+%    EDGES is a 3-column array with non-zero values corresponding to the edges(s) 
+%    to be locked. For example, EDGES = [1 0 1] imposes no-slip conditions on the updip
+%    and lateral edges of the fault (columns 1 and 3, respectively), but not on the 
+%    downdip edge (column 2). For structures T that contain multiple distinct faults
+%    (i.e., numel(T.nEl) > 1), specify EDGES as a single row to apply the constraints to 
+%    all faults, or include a unique row for each fault. 
+%
+%    TRIINV(..., 'dcomp', COMPONENTS) allows specification of which components of the 
+%    displacement (velocity) observations to use. COMPONENTS is a 3-element vector with
+%    non-zero entries corresponding to the components to consider as observations in the 
+%    inversion. For example, to use only vertical displacement data, specify:
+%    COMPONENTS = [0 0 1]. The default behavior is COMPONENTS = [1 1 1] so that the 
+%    X, Y, and Z components are all considered as constraining data in the inversion. 
+%
+%    TRIINV(..., 'nneg', NONNEG) allows specification of which components of the 
+%    slip distribution should be restricted to be positive only. NONNEG should be a 
+%    2-element vector with a 0 to place no constraint on the sign of slip and 1 to 
+%    constrain slip in that direction to be positive. The 2 elements correspond to the
+%    strike and dip/tensile direction, respectively. For example, to constrain dip 
+%    slip only to be non-negative, specify NONNEG = [0 1]; 
 %
 %    *** Important notes about the KERNEL argument: ***
 %    If you specify a string for KERNEL, the program will check for its existence, and 
@@ -41,30 +52,39 @@ function [u, g, w, We, d] = triinvx(s, p, beta, k, verttrim, nneg, varargin)
 %    line of V should be [10, 17, 103].  
 %
 %    U = TRIINV(...) returns the estimated slip (rate) to vector U.  U is structured
-%    so that strike and dip slip estimates are stacked, i.e. 
-%       [Us1;
-%        Ud1;
-%        Us2;
-%        Ud2;
-%    U =  . 
-%         .
-%         .
-%        Usm;
-%        Udm];
+%    so that strike, dip, and tensile slip estimates are stacked, i.e. 
+%         U = [Us1, Ud1, Ut1, Us2, Ud2, Ut2, ..., Usm, Udm, Utm]';
 
-% Check station coordinates
-%[s.x, s.y, s.z] = deal(s.lon, s.lat, 0*s.lat);
+% Parse optional inputs 
+if nargin > 3
+   for i = 1:2:numel(varargin)
+      if startsWith(varargin{i}, 'partials')
+         g = varargin{i+1};
+      elseif startsWith(varargin{i}, 'lock')
+         Command.triEdge = varargin{i+1};
+      elseif startsWith(varargin{i}, 'dcomp')
+         dcomp = varargin{i+1};
+      elseif startsWith(varargin{i}, 'nneg')
+         nneg = varargin{i+1};
+      end
+   end
+end
+
+% Check station structure to make sure z coordinates exist; assume surface if not specified
 if ~isfield(s, 'z')
    s.z                              = 0*s.x;
 end
 
-% Add vertical velocity and uncertainty, if need be
+% Add template vertical velocity and uncertainty, if need be
 if ~isfield(s, 'upVel')
    s.upVel                          = 0*s.eastVel;
 end
 if ~isfield(s, 'upSig')
-   s.upSig                          = ones(length(s.lon), 1);
+   s.upSig                          = ones(numsta, 1);
 end
+
+% Station count
+numsta = numel(s.x);
 
 if ischar(p) % if the triangular mesh was specified as a file...
    % load the patch file...
@@ -88,16 +108,9 @@ if numel(beta) ~= numel(p.nEl)
 end
 
 % Check for existing kernel
-if ischar(k)
-   if exist(k, 'file')
-      load(k)
-   else
-      % Calculate the triangular partials
-      g                             = GetTriCombinedPartialsx(p, s, [1 0]);
-      save(k, 'g');
-   end
-else
-   g                                = k;
+if ~exist('g', 'var')
+   % Calculate the triangular partials
+   g                                = GetTriCombinedPartialsx(p, s, [1 0]);
 end
 
 % Adjust triangular partials
@@ -107,19 +120,22 @@ triT                                = find(tz(:) == 3); % Find those with tensil
 colkeep                             = setdiff(1:size(g, 2), [3*triD-0; 3*triT-1]);
 gt                                  = g(:, colkeep); % eliminate the partials that equal zero
 
-% Trim rows vertical corresponding to vertical displacements?
-if verttrim == 1
-   rowkeep                          = sort([[1:3:3*numel(s.x)], [2:3:3*numel(s.x)]]');
+% Determine which rows of partial derivative matrix to keep.
+% These rows correspond to displacement components that are being considered.
+
+% dcomp is the optional variable that controls this, and it should be a 
+% 3-element vector with non-zero entries for those components that should be used.
+if exist('dcomp', 'var')
+   dcomp                            = repmat(dcomp(:), numsta, 1);
+   rowkeep                          = find(dcomp ~= 0);
 else
-   rowkeep                          = 1:3*numel(s.lon);
+   rowkeep                          = 1:3*numel(s.x);
 end   
 
 gt                                  = gt(rowkeep, :);
 
 % Lock edges?
-if nargin > 6
-   Command.triEdge                  = varargin{:};
-else
+if ~exist('Command.triEdge', 'var')
    Command.triEdge                  = 0;
 end
 
@@ -131,7 +147,13 @@ end
 
 % Spatial smoothing
 if sum(beta)  
-   [w, be]                          = trismoothmp(p, s, gt, beta);
+   % Find neighbors
+   share = SideShare(p.v);
+
+   % Make the smoothing matrix
+   w = MakeTriSmoothAlt(share);
+   w = w(colkeep, :);
+   w = w(:, colkeep);
 else
    w                                = zeros(0, 3*size(p.v, 1));
 end
@@ -139,7 +161,7 @@ end
 % Weighting matrix
 we                                  = stack3(1./[s.eastSig, s.northSig, s.upSig].^2);
 we                                  = we(rowkeep);
-we                                  = [we ; be.*ones(size(w, 1), 1)]; % add the triangular smoothing vector
+we                                  = [we ; beta.*ones(size(w, 1), 1)]; % add the triangular smoothing vector
 we                                  = [we ; 1e10*ones(size(Ztri, 1), 1)]; % add the zero edge vector
 We                                  = diag(we); % assemble into a matrix
 
@@ -150,32 +172,23 @@ d                                   = stack3([s.eastVel, s.northVel, s.upVel]);
 d                                   = d(rowkeep);
 d                                   = [d; zeros(size(w, 1), 1); zeros(size(Ztri, 1), 1)];
 
-  dcov = stack3([s.eastSig, s.northSig, s.upSig]).^2; % Data covariance
-  dcov = diag(dcov(rowkeep));
-  dcho = chol(dcov); % Cholesky decomposition of data covariance
-  dcInv = inv(dcho');
-  Data = stack3([s.eastVel, s.northVel, s.upVel]);
-  Data = Data(rowkeep);
-  dataW = dcInv*Data; % Weighed data
-  gW = dcInv*gt; % Weighted partials
-  % Assemble matrices 
-  bigD = [dataW; zeros(size(w, 1) + size(Ztri, 1), 1)]; % Data vector, augmented with smoothing and edge constraints
-  bigG = [gW; diag(be)*w; 1e10.*Ztri]; % Partials, augmented with smoothing and edge partials
 
+% Check inversion type
+if ~exist('nneg', 'var')
+   nneg = 0;
+end
 
-if nneg == 0
-% Backslash inversion
-	% Carry out the inversion
-%	u                                   = (G'*We*G)\(G'*We*d);
-   u                                   = bigG\bigD;
+if sum(nneg) == 0
+   % Backslash inversion
+   u                                   = (G'*We*G)\(G'*We*d);
 else
-% Use non-negative solver
-
-   % Do the inversion
-
+   % Use non-negative solver
    options = optimoptions('lsqlin', 'tolfun', 1e-25, 'maxiter', 1e5, 'tolpcg', 1e-3, 'PrecondBandWidth', Inf);
-   u = lsqlin(bigG, bigD, [], [], [], [], repmat([-.1; 0], size(bigG, 2)/2, 1), repmat([.1; Inf], size(bigG, 2)/2, 1), [], options);
-%   u = lsqlin(G'*We*G, G'*We*d, [], [], [], [], repmat([-.1; 0], size(G, 2)/2, 1), repmat([.1; Inf], size(G, 2)/2, 1), [], options);
+   % Set bounds on sign of slip components
+   slipbounds = [-Inf Inf; 0 Inf];
+   slipboundss = slipbounds(double(nneg(1) ~= 0) + 1, :);
+   slipboundsd = slipbounds(double(nneg(2) ~= 0) + 1, :);
+   u = lsqlin(G'*We*G, G'*We*d, [], [], [], [], repmat([slipboundss(1); slipboundsd(1)], size(G, 2)/2, 1), repmat([slipboundss(2); slipboundsd(2)], size(G, 2)/2, 1), [], options);
 end
 
 
