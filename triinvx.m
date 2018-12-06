@@ -75,6 +75,9 @@ if ~isfield(s, 'z')
    s.z                              = 0*s.x;
 end
 
+% Station count
+numsta = numel(s.x);
+
 % Add template vertical velocity and uncertainty, if need be
 if ~isfield(s, 'upVel')
    s.upVel                          = 0*s.eastVel;
@@ -83,8 +86,7 @@ if ~isfield(s, 'upSig')
    s.upSig                          = ones(numsta, 1);
 end
 
-% Station count
-numsta = numel(s.x);
+
 
 if ischar(p) % if the triangular mesh was specified as a file...
    % load the patch file...
