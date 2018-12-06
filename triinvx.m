@@ -33,14 +33,6 @@ function [u, g, w, We, d] = triinvx(s, p, beta, varargin)
 %    strike and dip/tensile direction, respectively. For example, to constrain dip 
 %    slip only to be non-negative, specify NONNEG = [0 1]; 
 %
-%    *** Important notes about the KERNEL argument: ***
-%    If you specify a string for KERNEL, the program will check for its existence, and 
-%    load it if it exists. If not, the elastic partials will be calculated and saved to
-%    KERNEL. No internal checks are made to assure that an existing KERNEL corresponds 
-%    to the present station-source geometry, except that the inversion will fail if the 
-%    loaded kernel does not have the same dimensions as the present configuration 
-%    of S and T.  To assure calculation of a "fresh" kernel, either delete the
-%    existing kernel or provide a unique file name.
 %
 %    *** Notes about input argument T: ***
 %    T can either be the path to a .msh file as written by the open-source meshing 
@@ -85,8 +77,6 @@ end
 if ~isfield(s, 'upSig')
    s.upSig                          = ones(numsta, 1);
 end
-
-
 
 if ischar(p) % if the triangular mesh was specified as a file...
    % load the patch file...
@@ -137,7 +127,7 @@ end
 gt                                  = gt(rowkeep, :);
 
 % Lock edges?
-if ~exist('Command.triEdge', 'var')
+if ~exist('Command', 'var') % Command structure only exists if triEdge was specified as input argument
    Command.triEdge                  = 0;
 end
 
