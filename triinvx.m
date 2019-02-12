@@ -1,9 +1,9 @@
-function [u, g, w, We, d] = triinvx(s, p, beta, varargin)
+function [u, pred, g] = triinvx(p, s, beta, varargin)
 %
 % TRIINVX   Inverts surface displacements for slip on triangular mesh in Cartesian space.
-%    TRIINV(S, T, BETA) inverts the displacements/velocities contained 
+%    TRIINV(P, S, BETA) inverts the displacements/velocities contained 
 %    in the structure S for slip on the triangular dislocation mesh defined
-%    in the file T, which can be in .mat or .msh format (see below), subject to the
+%    in the file P, which can be in .mat or .msh format (see below), subject to the
 %    Laplacian smoothing constraint whose strength is defined as BETA. 
 %
 %    TRIINV(..., 'partials', G) enables specification of a pre-calculated matrix, 
@@ -188,3 +188,7 @@ end
 U                                   = zeros(3*numel(p.xc), 1);
 U(colkeep)                          = u;
 u                                   = U;
+
+% Predict displacements
+pred                                = g*u;
+
