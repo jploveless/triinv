@@ -27,15 +27,16 @@ function [u, pred, g] = triinvx(p, s, beta, varargin)
 %    X, Y, and Z components are all considered as constraining data in the inversion. 
 %
 %    TRIINV(..., 'nneg', NONNEG) allows specification of which components of the 
-%    slip distribution should be restricted to be positive only. NONNEG should be a 
-%    2-element vector with a 0 to place no constraint on the sign of slip and 1 to 
-%    constrain slip in that direction to be positive. The 2 elements correspond to the
-%    strike and dip/tensile direction, respectively. For example, to constrain dip 
-%    slip only to be non-negative, specify NONNEG = [0 1]; 
+%    slip distribution should be sign-constrained. NONNEG should be a 2-element vector
+%    with a 0 to place no constraint on the sign of slip, 1 to constrain slip in that 
+%    direction to be positive, and -1 to constrain slip to be negative. The 2 elements
+%    correspond to the strike and dip/tensile direction, respectively. For example, to 
+%    constrain dip-slip only to be positive, specify NONNEG = [0 1]; To constrain 
+%    strike-slip to be negative and dip slip to be positive, specify NONNEG = [-1 1]; 
 %
 %
-%    *** Notes about input argument T: ***
-%    T can either be the path to a .msh file as written by the open-source meshing 
+%    *** Notes about input argument P: ***
+%    P can either be the path to a .msh file as written by the open-source meshing 
 %    program Gmsh, or a .mat file containing two variables "c" and "v".  c is an n-by-3 
 %    array whose columns contain the X, Y, Z coordinates of the n nodes in a triangular
 %    mesh.  Z coordinates should be negative, i.e. a depth of 15 km would be given as -15.
@@ -91,12 +92,19 @@ end
 % Process patch coordinates
 p                                   = PatchCoordsx(p);
 % Identify dipping and vertical elements
-tz                                  = 3*ones(p.nEl, 1); % By default, all are vertical (will zero out second component of slip)
+tz                                  = 3*ones(sum(p.nEl), 1); % By default, all are vertical (will zero out second component of slip)
 tz(abs(90-p.dip) > 1)               = 2; % Dipping elements are changed
 
 % Check the length of beta and repeat if necessary
 if numel(beta) ~= numel(p.nEl)
-   beta                             = repmat(beta, numel(p.nEl), 1);
+   beta                             = repmat(beta, length(p.nEl), 1);
+end
+% Apply beta(s) to every element
+Beta                                = zeros(2*size(p.v, 1), 1); % Blank vector, 2 values for every element
+ends                                = cumsum(2*p.nEl);
+begs                                = [1; ends(1:end-1)+1];
+for i = 1:length(p.nEl)
+   Beta(begs(i):ends(i))            = beta(i);
 end
 
 % Check for existing kernel
@@ -153,7 +161,7 @@ end
 % Weighting matrix
 we                                  = stack3(1./[s.eastSig, s.northSig, s.upSig].^2);
 we                                  = we(rowkeep);
-we                                  = [we ; beta.*ones(size(w, 1), 1)]; % add the triangular smoothing vector
+we                                  = [we ; Beta.*ones(size(w, 1), 1)]; % add the triangular smoothing vector
 we                                  = [we ; 1e10*ones(size(Ztri, 1), 1)]; % add the zero edge vector
 We                                  = diag(we); % assemble into a matrix
 
@@ -170,16 +178,16 @@ if ~exist('nneg', 'var')
    nneg = 0;
 end
 
-if sum(nneg) == 0
+if sum(abs(nneg)) == 0
    % Backslash inversion
    u                                   = (G'*We*G)\(G'*We*d);
 else
    % Use non-negative solver
    options = optimoptions('lsqlin', 'tolfun', 1e-25, 'maxiter', 1e5, 'tolpcg', 1e-3, 'PrecondBandWidth', Inf);
    % Set bounds on sign of slip components
-   slipbounds = [-Inf Inf; 0 Inf];
-   slipboundss = slipbounds(double(nneg(1) ~= 0) + 1, :);
-   slipboundsd = slipbounds(double(nneg(2) ~= 0) + 1, :);
+   slipbounds = [-Inf 0; -Inf Inf; 0 Inf];
+   slipboundss = slipbounds(nneg(1) + 2, :);
+   slipboundsd = slipbounds(nneg(2) + 2, :);
    u = lsqlin(G'*We*G, G'*We*d, [], [], [], [], repmat([slipboundss(1); slipboundsd(1)], size(G, 2)/2, 1), repmat([slipboundss(2); slipboundsd(2)], size(G, 2)/2, 1), [], options);
 end
 
