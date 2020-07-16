@@ -32,9 +32,9 @@ else
 end
 
 % set up some indexing arrays
-elOrd                                        = [0 cumsum(p.nEl)];
-coOrd                                        = [0 cumsum(p.nc)];
-coOrd                                        = coOrd(min(p.up):max(p.up)+1);
+elOrd                                        = [0; cumsum(p.nEl(:))];
+coOrd                                        = [0; cumsum(p.nc(:))];
+%coOrd                                        = coOrd(min(p.up):max(p.up)+1);
 
 updips                                       = [];
 downdips                                     = [];
