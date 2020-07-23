@@ -101,7 +101,7 @@ if numel(beta) ~= numel(p.nEl)
 end
 % Apply beta(s) to every element
 Beta                                = zeros(2*size(p.v, 1), 1); % Blank vector, 2 values for every element
-ends                                = cumsum(2*p.nEl);
+ends                                = cumsum(2*p.nEl(:));
 begs                                = [1; ends(1:end-1)+1];
 for i = 1:length(p.nEl)
    Beta(begs(i):ends(i))            = beta(i);
@@ -186,9 +186,32 @@ else
    options = optimoptions('lsqlin', 'tolfun', 1e-25, 'maxiter', 1e5, 'tolpcg', 1e-3, 'PrecondBandWidth', Inf);
    % Set bounds on sign of slip components
    slipbounds = [-Inf 0; -Inf Inf; 0 Inf];
-   slipboundss = slipbounds(nneg(1) + 2, :);
-   slipboundsd = slipbounds(nneg(2) + 2, :);
-   u = lsqlin(G'*We*G, G'*We*d, [], [], [], [], repmat([slipboundss(1); slipboundsd(1)], size(G, 2)/2, 1), repmat([slipboundss(2); slipboundsd(2)], size(G, 2)/2, 1), [], options);
+   if size(nneg, 1) == 1 % If a single bound constraint is specified
+      slipboundss = slipbounds(nneg(1) + 2, :);
+      slipboundsd = slipbounds(nneg(2) + 2, :);
+      lbound = repmat([slipboundss(1); slipboundsd(1)], size(G, 2)/2, 1);
+      ubound = repmat([slipboundss(2); slipboundsd(2)], size(G, 2)/2, 1);
+   elseif size(nneg, 1) == numel(p.nEl) % If bounds are specified on each fault
+      % Define element index ranges
+      ends = cumsum(p.nEl(:));
+      begs = [1; ends(1:end-1)+1];
+      % Allocate space for slip bounds
+      lbound = zeros(size(G, 2)/2, 2);
+      ubound = lbound;
+      % Loop through each fault to apply constraints to its elements
+      for i = 1:numel(p.nEl)
+         lbound(begs(i):ends(i), 1) = slipbounds(nneg(i, 1) + 2, 1); % Strike-slip lower bound
+         lbound(begs(i):ends(i), 2) = slipbounds(nneg(i, 2) + 2, 1); % Dip-slip lower bound
+         ubound(begs(i):ends(i), 1) = slipbounds(nneg(i, 1) + 2, 2); % Strike-slip lower bound
+         ubound(begs(i):ends(i), 2) = slipbounds(nneg(i, 2) + 2, 2); % Dip-slip lower bound
+      end
+      % Reshape to column vectors
+      lbound = stack2(lbound);
+      ubound = stack2(ubound);
+   else
+      error('Slip sign constraints should be specified as a 1-by-2 vector, applying the same constraints to all faults, or a numel(p.nEl)-by-2 array specifying unique constraints for each fault.')
+   end
+   u = lsqlin(G'*We*G, G'*We*d, [], [], [], [], lbound, ubound, [], options);
 end
 
 
