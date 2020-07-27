@@ -6,6 +6,15 @@ function [u, pred, g] = triinvx(p, s, beta, varargin)
 %    in the file P, which can be in .mat or .msh format (see below), subject to the
 %    Laplacian smoothing constraint whose strength is defined as BETA. 
 %
+%    The input structure S should contain coordinates as S.x, S.y, and S.z; 
+%    displacements/velocities as S.eastVel, s.northVel, s.upVel; uncertainties as
+%    s.eastSig, s.northSig, and s.upSig. If stresses are to be included in the 
+%    inversion, the tensor components at the coordinates should be specified as 
+%    fields S.sxx, S.syy, S.szz, S.sxy, S.sxz, S.syz, with tensor component 
+%    uncertainties of S.sxxs, S.syys, S.szzs, S.sxys, S.sxzs, S.syzs. These fields
+%    can be generated from a 6*nCoordinates-by-1 vector using the function 
+%    makestressfields.m. 
+%
 %    TRIINV(..., 'partials', G) enables specification of a pre-calculated matrix, 
 %    G, of partial derivatives relating slip on triangular dislocation elements to 
 %    displacement at observation coordinates. G should be 3*nObs-by-3*nTri.
@@ -27,12 +36,14 @@ function [u, pred, g] = triinvx(p, s, beta, varargin)
 %    X, Y, and Z components are all considered as constraining data in the inversion. 
 %
 %    TRIINV(..., 'nneg', NONNEG) allows specification of which components of the 
-%    slip distribution should be sign-constrained. NONNEG should be a 2-element vector
-%    with a 0 to place no constraint on the sign of slip, 1 to constrain slip in that 
-%    direction to be positive, and -1 to constrain slip to be negative. The 2 elements
-%    correspond to the strike and dip/tensile direction, respectively. For example, to 
-%    constrain dip-slip only to be positive, specify NONNEG = [0 1]; To constrain 
-%    strike-slip to be negative and dip slip to be positive, specify NONNEG = [-1 1]; 
+%    slip distribution should be sign-constrained. NONNEG should be either a 2-element
+%    vector that applies uniform constraints to all faults, or a numel(P.nEl)-by-2 array
+%    that allows specification of different constraints for each fault. Each row of NONNEG
+%    specifies constraints on the sign of [strike, dip] slip, with a 0 to place no 
+%    constraint on the sign of slip, 1 to constrain slip in that direction to be positive,
+%    and -1 to constrain slip to be negative. For example, to constrain dip-slip only to 
+%    be positive, specify NONNEG = [0 1]. To constrain strike-slip to be negative and dip
+%    slip to be positive, specify NONNEG = [-1 1]; 
 %
 %
 %    *** Notes about input argument P: ***
@@ -110,15 +121,14 @@ end
 % Check for existing kernel
 if ~exist('g', 'var')
    % Calculate the triangular partials
-   g                                = GetTriCombinedPartialsx(p, s, [1 0]);
+   if isfield(s, 'sxx') % If stress components exist in station structure
+      [g, gs]                       = GetTriCombinedPartialsx(p, s, [1 1]); % Calculate both partials
+      gs                            = StrainToStressComp(gs, 3e10, 3e10); % Convert strain to stress partials
+   else
+      g                             = GetTriCombinedPartialsx(p, s, [1 0]);
+      gs                            = zeros(0, size(g, 2)); % Blank stress partial matrix
+   end
 end
-
-% Adjust triangular partials
-triS                                = [1:length(tz)]'; % All include strike
-triD                                = find(tz(:) == 2); % Find those with dip-slip
-triT                                = find(tz(:) == 3); % Find those with tensile slip
-colkeep                             = setdiff(1:size(g, 2), [3*triD-0; 3*triT-1]);
-gt                                  = g(:, colkeep); % eliminate the partials that equal zero
 
 % Determine which rows of partial derivative matrix to keep.
 % These rows correspond to displacement components that are being considered.
@@ -129,10 +139,17 @@ if exist('dcomp', 'var')
    dcomp                            = repmat(dcomp(:), numsta, 1);
    rowkeep                          = find(dcomp ~= 0);
 else
-   rowkeep                          = 1:3*numel(s.x);
+   rowkeep                          = 1:3*numsta;
 end   
+g                                   = g(rowkeep, :);
+g                                   = [g; gs]; % Stack partials matrices
 
-gt                                  = gt(rowkeep, :);
+% Adjust triangular partials
+triS                                = [1:length(tz)]'; % All include strike
+triD                                = find(tz(:) == 2); % Find those with dip-slip
+triT                                = find(tz(:) == 3); % Find those with tensile slip
+colkeep                             = setdiff(1:size(g, 2), [3*triD-0; 3*triT-1]);
+gt                                  = g(:, colkeep); % eliminate the partials that equal zero
 
 % Lock edges?
 if ~exist('Command', 'var') % Command structure only exists if triEdge was specified as input argument
@@ -161,6 +178,10 @@ end
 % Weighting matrix
 we                                  = stack3(1./[s.eastSig, s.northSig, s.upSig].^2);
 we                                  = we(rowkeep);
+if isfield(s, 'sxx') % If stress data exist
+   ws                               = stack6(1./[s.sxxs, s.syys, s.szzs, s.sxys, s.sxzs, s.syzs].^2);
+   we                               = [we ; ws];
+end
 we                                  = [we ; Beta.*ones(size(w, 1), 1)]; % add the triangular smoothing vector
 we                                  = [we ; 1e10*ones(size(Ztri, 1), 1)]; % add the zero edge vector
 We                                  = diag(we); % assemble into a matrix
@@ -170,8 +191,11 @@ G                                   = [gt; w; Ztri];
 % ...and the data vector
 d                                   = stack3([s.eastVel, s.northVel, s.upVel]);
 d                                   = d(rowkeep);
+if isfield(s, 'sxx') % If stress data exist
+   ds                               = stack6([s.sxx, s.syy, s.szz, s.sxy, s.sxz, s.syz]);
+   d                                = [d ; ds];
+end
 d                                   = [d; zeros(size(w, 1), 1); zeros(size(Ztri, 1), 1)];
-
 
 % Check inversion type
 if ~exist('nneg', 'var')
@@ -221,5 +245,5 @@ U(colkeep)                          = u;
 u                                   = U;
 
 % Predict displacements
-pred                                = g*u;
+pred                                = g*u; % g is the untrimmed matrix of partials
 
