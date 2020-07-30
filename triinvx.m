@@ -202,12 +202,12 @@ if ~exist('nneg', 'var')
    nneg = 0;
 end
 
-if sum(abs(nneg)) == 0
+if sum(abs(nneg(:))) == 0
    % Backslash inversion
    u                                   = (G'*We*G)\(G'*We*d);
 else
    % Use non-negative solver
-   options = optimoptions('lsqlin', 'tolfun', 1e-25, 'maxiter', 1e5, 'tolpcg', 1e-3, 'PrecondBandWidth', Inf);
+   options = optimoptions('lsqlin');
    % Set bounds on sign of slip components
    slipbounds = [-Inf 0; -Inf Inf; 0 Inf];
    if size(nneg, 1) == 1 % If a single bound constraint is specified
