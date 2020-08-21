@@ -9,11 +9,11 @@ function [u, pred, g] = triinvx(p, s, beta, varargin)
 %    The input structure S should contain coordinates as S.x, S.y, and S.z; 
 %    displacements/velocities as S.eastVel, s.northVel, s.upVel; uncertainties as
 %    s.eastSig, s.northSig, and s.upSig. If stresses are to be included in the 
-%    inversion, the tensor components at the coordinates should be specified as 
-%    fields S.sxx, S.syy, S.szz, S.sxy, S.sxz, S.syz, with tensor component 
-%    uncertainties of S.sxxs, S.syys, S.szzs, S.sxys, S.sxzs, S.syzs. These fields
-%    can be generated from a 6*nCoordinates-by-1 vector using the function 
-%    makestressfields.m. 
+%    inversion, the coordinates should be specified as S.xs, S.ys, and S.zs; tensor 
+%    components at these coordinates should be fields S.sxx, S.syy, S.szz, S.sxy, 
+%    S.sxz, S.syz, with tensor component uncertainties of S.sxxs, S.syys, S.szzs, 
+%    S.sxys, S.sxzs, S.syzs. These fields can be generated from a 
+%    6*nCoordinates-by-1 vector using the function makestressfields.m. 
 %
 %    TRIINV(..., 'partials', G) enables specification of a pre-calculated matrix, 
 %    G, of partial derivatives relating slip on triangular dislocation elements to 
@@ -122,8 +122,12 @@ end
 if ~exist('g', 'var')
    % Calculate the triangular partials
    if isfield(s, 'sxx') % If stress components exist in station structure
-      [g, gs]                       = GetTriCombinedPartialsx(p, s, [1 1]); % Calculate both partials
-      gs                            = StrainToStressComp(gs, 3e10, 3e10); % Convert strain to stress partials
+      % Create new structure that concatenates displacement and stress coordinates
+      [ss.x, ss.y, ss.z]            = deal([s.x; s.xs], [s.y; s.ys], [s.z; s.zs]);
+      pdisp                         = [true(size(s.x)); false(size(s.xs))]; % Logical index of displacement coordinates
+      pstr                          = ~pdisp; % Logical index of stress coordinates
+      [g, gs]                       = GetTriCombinedPartialsx(p, ss, [pdisp pstr]); % Calculate both partials
+      gs                            = StrainToStressComp(gs', 3e10, 3e10)'; % Convert strain to stress partials
    else
       g                             = GetTriCombinedPartialsx(p, s, [1 0]);
       gs                            = zeros(0, size(g, 2)); % Blank stress partial matrix
@@ -198,16 +202,16 @@ end
 d                                   = [d; zeros(size(w, 1), 1); zeros(size(Ztri, 1), 1)];
 
 % Check inversion type
-if ~exist('nneg', 'var')
+if ~exist('nneg', 'var') % Check for slip sense constraints
    nneg = 0;
 end
 
-if sum(abs(nneg(:))) == 0
-   % Backslash inversion
+if sum(abs(nneg(:))) == 0 % If no constraints, 
+   % Use backslash inversion
    u                                   = (G'*We*G)\(G'*We*d);
 else
-   % Use non-negative solver
-   options = optimoptions('lsqlin');
+   % Otherwise use non-negative solver
+   options = optimoptions('lsqlin'); % Use default linear least squares options
    % Set bounds on sign of slip components
    slipbounds = [-Inf 0; -Inf Inf; 0 Inf];
    if size(nneg, 1) == 1 % If a single bound constraint is specified
