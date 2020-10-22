@@ -78,6 +78,8 @@ if nargin > 3
       elseif startsWith(varargin{i}, 'tvr')
          tvr = varargin{i+1};
          lambda = beta;
+      elseif startsWith(varargin{i}, 'outstruct')
+         outstruct = varargin{i+1};
       end
    end
 end
@@ -241,10 +243,26 @@ else % If there are constraints on the sign
 end
 
 % Pad the estimated slip with zeros, corresponding to slip components that were not estimated
-U                                   = zeros(3*numel(p.xc), 1);
+U                                   = zeros(3*sum(p.nEl), 1);
 U(colkeep)                          = u;
 u                                   = U;
 
 % Predict displacements
 pred                                = g*u; % g is the untrimmed matrix of partials
 
+% Format output arguments as structure, if requested
+if exist('outstruct', 'var')
+   if outstruct
+      us.strike = u(1:3:end);
+      us.dip = 0*us.strike;
+      us.tens = 0*us.strike;
+      us.dip(tz == 2) = u(3*find(tz == 2)-1);
+      us.tens(tz == 3) = u(3*find(tz == 3)-0);
+      u = us;
+      Pred.eastVel = pred(1:3:end);
+      Pred.northVel = pred(2:3:end);
+      Pred.upVel = pred(3:3:end);
+      pred = Pred;
+   end
+end
+      
