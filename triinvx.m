@@ -15,6 +15,8 @@ function [u, pred, g] = triinvx(p, s, beta, varargin)
 %    S.sxys, S.sxzs, S.syzs. These fields can be generated from a 
 %    6*nCoordinates-by-1 vector using the function makestressfields.m. 
 %
+%    Optional input arguments can be specified using 'parameter', value pairs:
+%
 %    TRIINV(..., 'partials', G) enables specification of a pre-calculated matrix, 
 %    G, of partial derivatives relating slip on triangular dislocation elements to 
 %    displacement at observation coordinates. G should be 3*nObs-by-3*nTri.
@@ -45,6 +47,9 @@ function [u, pred, g] = triinvx(p, s, beta, varargin)
 %    be positive, specify NONNEG = [0 1]. To constrain strike-slip to be negative and dip
 %    slip to be positive, specify NONNEG = [-1 1]; 
 %
+%    TRIINV(..., 'tvr', TVRFLAG), where TVRFLAG = true, estimates slip using total
+%    variation regularization rather than Laplacian smoothing. In this case, the 
+%    regularization strength is still controlled by input argument BETA.
 %
 %    *** Notes about input argument P: ***
 %    P can either be the path to a .msh file as written by the open-source meshing 
@@ -53,7 +58,7 @@ function [u, pred, g] = triinvx(p, s, beta, varargin)
 %    mesh.  Z coordinates should be negative, i.e. a depth of 15 km would be given as -15.
 %    v is an m-by-3 array containing the indexes of the nodes that comprise each triangle.
 %    For example, if element 1 of the mesh is made up of nodes 10, 17, and 103, the first
-%    line of V should be [10, 17, 103].  
+%    line of V should be [10, 17, 103] (as returned from Matlab's delaunay.m routine).  
 %
 %    U = TRIINV(...) returns the estimated slip (rate) to vector U.  U is structured
 %    so that strike, dip, and tensile slip estimates are stacked, i.e. 
@@ -70,8 +75,15 @@ if nargin > 3
          dcomp = varargin{i+1};
       elseif startsWith(varargin{i}, 'nneg')
          nneg = varargin{i+1};
+      elseif startsWith(varargin{i}, 'tvr')
+         tvr = varargin{i+1};
+         lambda = beta;
       end
    end
+end
+
+if ~exist('tvr', 'var')
+   tvr = false;
 end
 
 % Check station structure to make sure z coordinates exist; assume surface if not specified
@@ -157,7 +169,7 @@ gt                                  = g(:, colkeep); % eliminate the partials th
 
 % Lock edges?
 if ~exist('Command', 'var') % Command structure only exists if triEdge was specified as input argument
-   Command.triEdge                  = 0;
+   Command.triEdge                  = false(1, 3);
 end
 
 if sum(Command.triEdge) ~= 0
@@ -172,34 +184,38 @@ if sum(beta)
    share = SideShare(p.v);
 
    % Make the smoothing matrix
-   w = MakeTriSmoothAlt(share);
-   w = w(colkeep, :);
-   w = w(:, colkeep);
+   sm = MakeTriSmoothAlt(share);
+   sm = sm(colkeep, :);
+   sm = sm(:, colkeep);
 else
-   w                                = zeros(0, 3*size(p.v, 1));
+   sm                                = zeros(0, 3*size(p.v, 1));
 end
 
 % Weighting matrix
-we                                  = stack3(1./[s.eastSig, s.northSig, s.upSig].^2);
-we                                  = we(rowkeep);
+wd                                  = stack3(1./[s.eastSig, s.northSig, s.upSig].^2);
+wd                                  = wd(rowkeep);
 if isfield(s, 'sxx') % If stress data exist
    ws                               = stack6(1./[s.sxxs, s.syys, s.szzs, s.sxys, s.sxzs, s.syzs].^2);
-   we                               = [we ; ws];
+   wc                               = [wd ; ws]; % Combined weighting
+else
+   wc                               = wd;
 end
-we                                  = [we ; Beta.*ones(size(w, 1), 1)]; % add the triangular smoothing vector
-we                                  = [we ; 1e10*ones(size(Ztri, 1), 1)]; % add the zero edge vector
-We                                  = diag(we); % assemble into a matrix
+wc                                  = [wc; Beta.*ones(size(sm, 1), 1)]; % add the triangular smoothing vector
+wc                                  = [wc; 1e10*ones(size(Ztri, 1), 1)]; % add the zero edge vector
+Wc                                  = diag(wc); % assemble into a matrix
 
 % Assemble the Jacobian...
-G                                   = [gt; w; Ztri];
+G                                   = [gt; sm; Ztri];
 % ...and the data vector
-d                                   = stack3([s.eastVel, s.northVel, s.upVel]);
-d                                   = d(rowkeep);
+dd                                  = stack3([s.eastVel, s.northVel, s.upVel]);
+dd                                  = dd(rowkeep);
 if isfield(s, 'sxx') % If stress data exist
    ds                               = stack6([s.sxx, s.syy, s.szz, s.sxy, s.sxz, s.syz]);
-   d                                = [d ; ds];
+   dc                               = [dd; ds];
+else
+   dc                               = dd;
 end
-d                                   = [d; zeros(size(w, 1), 1); zeros(size(Ztri, 1), 1)];
+dc                                  = [dc; zeros(size(sm, 1), 1); zeros(size(Ztri, 1), 1)];
 
 % Check inversion type
 if ~exist('nneg', 'var') % Check for slip sense constraints
@@ -207,41 +223,22 @@ if ~exist('nneg', 'var') % Check for slip sense constraints
 end
 
 if sum(abs(nneg(:))) == 0 % If no constraints, 
-   % Use backslash inversion
-   u                                   = (G'*We*G)\(G'*We*d);
-else
-   % Otherwise use non-negative solver
-   options = optimoptions('lsqlin'); % Use default linear least squares options
-   % Set bounds on sign of slip components
-   slipbounds = [-Inf 0; -Inf Inf; 0 Inf];
-   if size(nneg, 1) == 1 % If a single bound constraint is specified
-      slipboundss = slipbounds(nneg(1) + 2, :);
-      slipboundsd = slipbounds(nneg(2) + 2, :);
-      lbound = repmat([slipboundss(1); slipboundsd(1)], size(G, 2)/2, 1);
-      ubound = repmat([slipboundss(2); slipboundsd(2)], size(G, 2)/2, 1);
-   elseif size(nneg, 1) == numel(p.nEl) % If bounds are specified on each fault
-      % Define element index ranges
-      ends = cumsum(p.nEl(:));
-      begs = [1; ends(1:end-1)+1];
-      % Allocate space for slip bounds
-      lbound = zeros(size(G, 2)/2, 2);
-      ubound = lbound;
-      % Loop through each fault to apply constraints to its elements
-      for i = 1:numel(p.nEl)
-         lbound(begs(i):ends(i), 1) = slipbounds(nneg(i, 1) + 2, 1); % Strike-slip lower bound
-         lbound(begs(i):ends(i), 2) = slipbounds(nneg(i, 2) + 2, 1); % Dip-slip lower bound
-         ubound(begs(i):ends(i), 1) = slipbounds(nneg(i, 1) + 2, 2); % Strike-slip lower bound
-         ubound(begs(i):ends(i), 2) = slipbounds(nneg(i, 2) + 2, 2); % Dip-slip lower bound
-      end
-      % Reshape to column vectors
-      lbound = stack2(lbound);
-      ubound = stack2(ubound);
+   if ~tvr
+      % Use backslash inversion with Laplacian smoothing
+      u                             = (G'*Wc*G)\(G'*Wc*dc);
    else
-      error('Slip sign constraints should be specified as a 1-by-2 vector, applying the same constraints to all faults, or a numel(p.nEl)-by-2 array specifying unique constraints for each fault.')
+      % Use TVR optimization
+      u = tvrslip(gt, diag(wd), dd, p, beta, logical(Command.triEdge));
+   end      
+else % If there are constraints on the sign
+   if ~tvr 
+      % Use built-in constrained solver
+      u = constrainedslip(G, Wc, dc, nneg);
+   else
+      % Or pass constraints to TVR routine
+      u = tvrslip(gt, diag(wd), dd, p, beta, logical(Command.triEdge), nneg);
    end
-   u = lsqlin(G'*We*G, G'*We*d, [], [], [], [], lbound, ubound, [], options);
 end
-
 
 % Pad the estimated slip with zeros, corresponding to slip components that were not estimated
 U                                   = zeros(3*numel(p.xc), 1);
