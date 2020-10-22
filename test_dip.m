@@ -50,6 +50,6 @@ colormap(bluewhitered);
 
 [u_tvr_rev_noedge, pred_tvr_rev_noedge] = triinvx(p, s, 1e-2, 'tvr', true, 'lock', [1 1 1], 'nneg', [0 1], 'outstruct', true);
 meshview(p.c, p.v, u_tvr_rev_noedge.dip);
-title('TVR, beta = 0.01');
+title('TVR, force reverse slip, no edge slip, beta = 0.01');
 caxis([-1 1]);
 colormap(bluewhitered);
