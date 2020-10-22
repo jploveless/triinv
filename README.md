@@ -13,4 +13,4 @@ __triinvx.m__ is the main function and requires a minimum of three input argumen
   
     u = triinvx(p, s, beta);
     
-where __p__ is a structure containing information about the triangular dislocation elements, __s__ is a structure containing the constraining data, and __beta__ defines the weighting of regularization applied in the slip estimation. Slip is returned to the vector __u__. Information about these and optional input arguments can be found in the [wiki](https://github.com/jploveless/triinv/wiki).
+where __p__ is a structure containing information about the triangular dislocation elements, __s__ is a structure containing the constraining data, and __beta__ defines the weighting of regularization applied in the slip estimation. Slip is returned to the vector __u__. More information about usage can be found in the [wiki](https://github.com/jploveless/triinv/wiki).
