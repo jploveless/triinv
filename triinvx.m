@@ -1,4 +1,4 @@
-function [u, pred, g] = triinvx(p, s, beta, varargin)
+function [u, pred, gsave] = triinvx(p, s, beta, varargin)
 %
 % TRIINVX   Inverts surface displacements for slip on triangular mesh in Cartesian space.
 %    TRIINV(P, S, BETA) inverts the displacements/velocities contained 
@@ -19,7 +19,8 @@ function [u, pred, g] = triinvx(p, s, beta, varargin)
 %
 %    TRIINV(..., 'partials', G) enables specification of a pre-calculated matrix, 
 %    G, of partial derivatives relating slip on triangular dislocation elements to 
-%    displacement at observation coordinates. G should be 3*nObs-by-3*nTri.
+%    displacement at observation coordinates. G should be untrimmed in both the 
+%    rows in columns.
 %
 %    TRIINV(..., 'lock', EDGES) subjects the inversion to locking (zero slip) 
 %    constraints on the updip, downdip, and/or lateral edges of the triangular mesh.  
@@ -95,6 +96,11 @@ end
 
 % Station count
 numsta = numel(s.x);
+if isfield(s, 'xs')
+   numstress = numel(s.xs);
+else
+   numstress = 0;
+end
 
 % Add template vertical velocity and uncertainty, if need be
 if ~isfield(s, 'upVel')
@@ -138,14 +144,17 @@ if ~exist('g', 'var')
    if isfield(s, 'sxx') % If stress components exist in station structure
       % Create new structure that concatenates displacement and stress coordinates
       [ss.x, ss.y, ss.z]            = deal([s.x; s.xs], [s.y; s.ys], [s.z; s.zs]);
-      pdisp                         = [true(size(s.x)); false(size(s.xs))]; % Logical index of displacement coordinates
+      pdisp                         = [true(numsta); false(numstress)]; % Logical index of displacement coordinates
       pstr                          = ~pdisp; % Logical index of stress coordinates
-      [g, gs]                       = GetTriCombinedPartialsx(p, ss, [pdisp pstr]); % Calculate both partials
+      [gd, gs]                      = GetTriCombinedPartialsx(p, ss, [pdisp pstr]); % Calculate both partials
       gs                            = StrainToStressComp(gs', 3e10, 3e10)'; % Convert strain to stress partials
    else
-      g                             = GetTriCombinedPartialsx(p, s, [1 0]);
-      gs                            = zeros(0, size(g, 2)); % Blank stress partial matrix
+      gd                            = GetTriCombinedPartialsx(p, s, [1 0]);
+      gs                            = zeros(0, size(gd, 2)); % Blank stress partial matrix
    end
+else % Parse input partials
+   gd                               = g(1:3*numsta, :); % First rows are displacements
+   gs                               = g(end - (6*numstress - 1):end, :); % Last rows are stresses
 end
 
 % Determine which rows of partial derivative matrix to keep.
@@ -158,16 +167,17 @@ if exist('dcomp', 'var')
    rowkeep                          = find(dcomp ~= 0);
 else
    rowkeep                          = 1:3*numsta;
-end   
-g                                   = g(rowkeep, :);
-g                                   = [g; gs]; % Stack partials matrices
+end
+gsave                               = [gd; gs]; % Full partials for output   
+gd                                  = gd(rowkeep, :); % Trimmed displacement components
+g                                   = [gd; gs]; % Stack partials matrices; this is basis for estimation
 
 % Adjust triangular partials
 triS                                = [1:length(tz)]'; % All include strike
 triD                                = find(tz(:) == 2); % Find those with dip-slip
 triT                                = find(tz(:) == 3); % Find those with tensile slip
 colkeep                             = setdiff(1:size(g, 2), [3*triD-0; 3*triT-1]);
-gt                                  = g(:, colkeep); % eliminate the partials that equal zero
+gt                                  = g(:, colkeep); % eliminate the columns for unused slip components
 
 % Lock edges?
 if ~exist('Command', 'var') % Command structure only exists if triEdge was specified as input argument
@@ -190,7 +200,7 @@ if sum(beta)
    sm = sm(colkeep, :);
    sm = sm(:, colkeep);
 else
-   sm                                = zeros(0, 3*size(p.v, 1));
+   sm                               = zeros(0, 3*size(p.v, 1));
 end
 
 % Weighting matrix
@@ -198,11 +208,11 @@ wd                                  = stack3(1./[s.eastSig, s.northSig, s.upSig]
 wd                                  = wd(rowkeep);
 if isfield(s, 'sxx') % If stress data exist
    ws                               = stack6(1./[s.sxxs, s.syys, s.szzs, s.sxys, s.sxzs, s.syzs].^2);
-   wc                               = [wd ; ws]; % Combined weighting
+   w                                = [wd ; ws]; % Combined weighting
 else
-   wc                               = wd;
+   w                                = wd;
 end
-wc                                  = [wc; Beta.*ones(size(sm, 1), 1)]; % add the triangular smoothing vector
+wc                                  = [w; Beta.*ones(size(sm, 1), 1)]; % add the triangular smoothing vector
 wc                                  = [wc; 1e10*ones(size(Ztri, 1), 1)]; % add the zero edge vector
 Wc                                  = diag(wc); % assemble into a matrix
 
@@ -213,11 +223,11 @@ dd                                  = stack3([s.eastVel, s.northVel, s.upVel]);
 dd                                  = dd(rowkeep);
 if isfield(s, 'sxx') % If stress data exist
    ds                               = stack6([s.sxx, s.syy, s.szz, s.sxy, s.sxz, s.syz]);
-   dc                               = [dd; ds];
+   d                                = [dd; ds];
 else
-   dc                               = dd;
+   d                                = dd;
 end
-dc                                  = [dc; zeros(size(sm, 1), 1); zeros(size(Ztri, 1), 1)];
+dc                                  = [d; zeros(size(sm, 1), 1); zeros(size(Ztri, 1), 1)];
 
 % Check inversion type
 if ~exist('nneg', 'var') % Check for slip sense constraints
@@ -230,7 +240,7 @@ if sum(abs(nneg(:))) == 0 % If no constraints,
       u                             = (G'*Wc*G)\(G'*Wc*dc);
    else
       % Use TVR optimization
-      u = tvrslip(gt, diag(wd), dd, p, beta, logical(Command.triEdge));
+      u = tvrslip(gt, diag(w), d, p, beta, logical(Command.triEdge));
    end      
 else % If there are constraints on the sign
    if ~tvr 
@@ -238,7 +248,7 @@ else % If there are constraints on the sign
       u = constrainedslip(G, Wc, dc, nneg);
    else
       % Or pass constraints to TVR routine
-      u = tvrslip(gt, diag(wd), dd, p, beta, logical(Command.triEdge), nneg);
+      u = tvrslip(gt, diag(w), d, p, beta, logical(Command.triEdge), nneg);
    end
 end
 
@@ -248,7 +258,7 @@ U(colkeep)                          = u;
 u                                   = U;
 
 % Predict displacements
-pred                                = g*u; % g is the untrimmed matrix of partials
+pred                                = gsave*u; % gsave is the untrimmed matrix of partials
 
 % Format output arguments as structure, if requested
 if exist('outstruct', 'var')
@@ -259,9 +269,13 @@ if exist('outstruct', 'var')
       us.dip(tz == 2) = u(3*find(tz == 2)-1);
       us.tens(tz == 3) = u(3*find(tz == 3)-0);
       u = us;
-      Pred.eastVel = pred(1:3:end);
-      Pred.northVel = pred(2:3:end);
-      Pred.upVel = pred(3:3:end);
+      Pred.eastVel = pred(1:3:3*numsta);
+      Pred.northVel = pred(2:3:3*numsta);
+      Pred.upVel = pred(3:3:3*numsta);
+      stressvec = pred(end - (6*numstress - 1):end);
+      if ~isempty(stressvec)
+         Pred = makestressfields(stressvec);
+      end
       pred = Pred;
    end
 end
