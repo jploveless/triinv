@@ -268,7 +268,7 @@ if exist('outstruct', 'var')
       us.tens = 0*us.strike;
       us.dip(tz == 2) = u(3*find(tz == 2)-1);
       us.tens(tz == 3) = u(3*find(tz == 3)-0);
-      u = us;
+      u = us; % Output slips
       Pred.eastVel = pred(1:3:3*numsta);
       Pred.northVel = pred(2:3:3*numsta);
       Pred.upVel = pred(3:3:3*numsta);
@@ -276,7 +276,7 @@ if exist('outstruct', 'var')
       if ~isempty(stressvec)
          Pred = makestressfields(stressvec);
       end
-      pred = Pred;
+      pred = Pred; % Output predictions
    end
 end
       
