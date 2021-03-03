@@ -31,12 +31,23 @@ function [u, pred, gsave] = triinvx(p, s, beta, varargin)
 %    (i.e., numel(T.nEl) > 1), specify EDGES as a single row to apply the constraints to 
 %    all faults, or include a unique row for each fault. 
 %
-%    TRIINV(..., 'dcomp', COMPONENTS) allows specification of which components of the 
-%    displacement (velocity) observations to use. COMPONENTS is a 3-element vector with
+%    TRIINV(..., 'dcomp', DCOMPONENTS) allows specification of which components of the 
+%    displacement (velocity) observations to use. DCOMPONENTS is a 3-element vector with
 %    non-zero entries corresponding to the components to consider as observations in the 
 %    inversion. For example, to use only vertical displacement data, specify:
-%    COMPONENTS = [0 0 1]. The default behavior is COMPONENTS = [1 1 1] so that the 
+%    DCOMPONENTS = [0 0 1]. The default behavior is DCOMPONENTS = [1 1 1] so that the 
 %    X, Y, and Z components are all considered as constraining data in the inversion. 
+% 
+%    TRIINV(..., 'scomp', SCOMPONENTS) allows specification of which components of the 
+%    stress (stress rate) observations to use. SCOMPONENTS is a 6-element vector with
+%    non-zero entries corresponding to the components to consider as observations in the 
+%    inversion. For example, to use only shear stress data, specify:
+%    SCOMPONENTS = [0 0 0 1 1 1]. The default behavior is COMPONENTS = [1 1 1 1 1 1] 
+%    so that all tensor components are considered as constraining data in the inversion. 
+%
+%    TRIINV(..., 'lame', MODULI) allows specification of Lame parameters defining the 
+%    elasticity of the half-space. MODULI is a 2-element vector giving the Lame parameters
+%    lambda and mu.
 %
 %    TRIINV(..., 'nneg', NONNEG) allows specification of which components of the 
 %    slip distribution should be sign-constrained. NONNEG should be either a 2-element
@@ -74,6 +85,10 @@ if nargin > 3
          Command.triEdge = varargin{i+1};
       elseif startsWith(varargin{i}, 'dcomp')
          dcomp = varargin{i+1};
+      elseif startsWith(varargin{i}, 'scomp')
+         scomp = varargin{i+1};
+      elseif startsWith(varargin{i}, 'lame')
+         lame = varargin{i+1};
       elseif startsWith(varargin{i}, 'nneg')
          nneg = varargin{i+1};
       elseif startsWith(varargin{i}, 'tvr')
@@ -85,6 +100,17 @@ if nargin > 3
    end
 end
 
+% Check for existence of specified Lame parameters
+if ~exist('lame', 'var')
+   mu = 3e10; lambda = 3e10; % Defaults
+else
+   mu = lame(2); lambda = lame(1);
+end
+
+% (Re)calculate Poisson's ratio from Lame parameters
+pr = lambda./(2*(lambda + mu));
+
+% Check whether TVR should be used
 if ~exist('tvr', 'var')
    tvr = false;
 end
@@ -146,10 +172,10 @@ if ~exist('g', 'var')
       [ss.x, ss.y, ss.z]            = deal([s.x; s.xs], [s.y; s.ys], [s.z; s.zs]);
       pdisp                         = [true(numsta); false(numstress)]; % Logical index of displacement coordinates
       pstr                          = ~pdisp; % Logical index of stress coordinates
-      [gd, gs]                      = GetTriCombinedPartialsx(p, ss, [pdisp pstr]); % Calculate both partials
-      gs                            = StrainToStressComp(gs', 3e10, 3e10)'; % Convert strain to stress partials
+      [gd, gs]                      = GetTriCombinedPartialsx(p, ss, [pdisp pstr], pr); % Calculate both partials
+      gs                            = StrainToStressComp(gs', mu, lambda)'; % Convert strain to stress partials
    else
-      gd                            = GetTriCombinedPartialsx(p, s, [1 0]);
+      gd                            = GetTriCombinedPartialsx(p, s, [1 0], pr);
       gs                            = zeros(0, size(gd, 2)); % Blank stress partial matrix
    end
 else % Parse input partials
@@ -158,9 +184,10 @@ else % Parse input partials
 end
 
 % Determine which rows of partial derivative matrix to keep.
-% These rows correspond to displacement components that are being considered.
 
-% dcomp is the optional variable that controls this, and it should be a 
+% These rows correspond to displacement and stress components that are being considered.
+
+% dcomp is the optional variable that controls displacements, and it should be a 
 % 3-element vector with non-zero entries for those components that should be used.
 if exist('dcomp', 'var')
    dcomp                            = repmat(dcomp(:), numsta, 1);
@@ -170,7 +197,19 @@ else
 end
 gsave                               = [gd; gs]; % Full partials for output   
 gd                                  = gd(rowkeep, :); % Trimmed displacement components
-g                                   = [gd; gs]; % Stack partials matrices; this is basis for estimation
+
+% scomp is the optional variable that controls stresses, and it should be a 
+% 6-element vector with non-zero entries for those components that should be used.
+if exist('scomp', 'var')
+   scomp                            = repmat(scomp(:), numstress, 1);
+   srowkeep                         = find(scomp ~= 0);
+else
+   srowkeep                         = 1:6*numstress;
+end
+gs                                  = gs(srowkeep, :);
+
+% Stack adjusted partials matrices; this is basis for estimation
+g                                   = [gd; gs]; 
 
 % Adjust triangular partials
 triS                                = [1:length(tz)]'; % All include strike
@@ -208,6 +247,7 @@ wd                                  = stack3(1./[s.eastSig, s.northSig, s.upSig]
 wd                                  = wd(rowkeep);
 if isfield(s, 'sxx') % If stress data exist
    ws                               = stack6(1./[s.sxxs, s.syys, s.szzs, s.sxys, s.sxzs, s.syzs].^2);
+   ws                               = ws(srowkeep);
    w                                = [wd ; ws]; % Combined weighting
 else
    w                                = wd;
@@ -223,6 +263,7 @@ dd                                  = stack3([s.eastVel, s.northVel, s.upVel]);
 dd                                  = dd(rowkeep);
 if isfield(s, 'sxx') % If stress data exist
    ds                               = stack6([s.sxx, s.syy, s.szz, s.sxy, s.sxz, s.syz]);
+   ds                               = ds(srowkeep);
    d                                = [dd; ds];
 else
    d                                = dd;
@@ -240,15 +281,15 @@ if sum(abs(nneg(:))) == 0 % If no constraints,
       u                             = (G'*Wc*G)\(G'*Wc*dc);
    else
       % Use TVR optimization
-      u = tvrslip(gt, diag(w), d, p, beta, logical(Command.triEdge));
+      u                             = tvrslip(gt, diag(w), d, p, beta, logical(Command.triEdge));
    end      
 else % If there are constraints on the sign
    if ~tvr 
       % Use built-in constrained solver
-      u = constrainedslip(G, Wc, dc, nneg);
+      u                             = constrainedslip(G, Wc, dc, nneg);
    else
       % Or pass constraints to TVR routine
-      u = tvrslip(gt, diag(w), d, p, beta, logical(Command.triEdge), nneg);
+      u                             = tvrslip(gt, diag(w), d, p, beta, logical(Command.triEdge), nneg);
    end
 end
 
