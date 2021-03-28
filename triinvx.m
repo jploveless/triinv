@@ -93,7 +93,6 @@ if nargin > 3
          nneg = varargin{i+1};
       elseif startsWith(varargin{i}, 'tvr')
          tvr = varargin{i+1};
-         lambda = beta;
       elseif startsWith(varargin{i}, 'outstruct')
          outstruct = varargin{i+1};
       end
@@ -117,11 +116,11 @@ end
 
 % Check station structure to make sure z coordinates exist; assume surface if not specified
 if ~isfield(s, 'z')
-   s.z                              = 0*s.x;
+   s.z                              = 0*s.eastVel;
 end
 
 % Station count
-numsta = numel(s.x);
+numsta = numel(s.eastVel);
 if isfield(s, 'xs')
    numstress = numel(s.xs);
 else
@@ -131,9 +130,16 @@ end
 % Add template vertical velocity and uncertainty, if need be
 if ~isfield(s, 'upVel')
    s.upVel                          = 0*s.eastVel;
+   dcomp                            = [1 1 0]; % Make sure not to use these for inversion
 end
 if ~isfield(s, 'upSig')
    s.upSig                          = ones(numsta, 1);
+end
+
+% Check whether data coordinates are geographic or Cartesian
+isgeog = false;
+if isfield(s, 'lon')
+   isgeog = true;
 end
 
 if ischar(p) % if the triangular mesh was specified as a file...
@@ -147,7 +153,12 @@ else
 end
 
 % Process patch coordinates
-p                                   = PatchCoordsx(p);
+if isgeog
+   p                                = PatchCoords(p);
+else
+   p                                = PatchCoordsx(p);   
+end
+
 % Identify dipping and vertical elements
 tz                                  = 3*ones(sum(p.nEl), 1); % By default, all are vertical (will zero out second component of slip)
 tz(abs(90-p.dip) > 1)               = 2; % Dipping elements are changed
@@ -175,7 +186,11 @@ if ~exist('g', 'var')
       [gd, gs]                      = GetTriCombinedPartialsx(p, ss, [pdisp pstr], pr); % Calculate both partials
       gs                            = StrainToStressComp(gs', mu, lambda)'; % Convert strain to stress partials
    else
-      gd                            = GetTriCombinedPartialsx(p, s, [1 0], pr);
+      if isgeog
+         gd                         = GetTriCombinedPartials(p, s, [1 0], pr);
+      else
+         gd                         = GetTriCombinedPartialsx(p, s, [1 0], pr);
+      end
       gs                            = zeros(0, size(gd, 2)); % Blank stress partial matrix
    end
 else % Parse input partials

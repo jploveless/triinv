@@ -1,6 +1,6 @@
 function x = tvrslip(G,W,D,Patches,lambda,varargin);
 
-%TVRslip(G,W,D,Patches,lambda,lock) 
+%TVRslip(G,W,D,Patches,lambda,lock,nneg) 
 %Lock subjects the inversion to locking constraints on the up- and/or
 %downdip extent of the triangular mesh. Lock is a 1x3 logical in the form
 %[updip downdip lateral] that chooses which edges to lock.
@@ -20,8 +20,8 @@ if nargin < 6 % If no optional arguments were specified,
    nneg = zeros(length(Patches.nEl), 2); % No sign constraints
 elseif nargin > 5 % If optional arguments were specified,
    for i = 1:length(varargin)
-      if islogical(varargin{i}) % Logical is edge locking
-         lock = varargin{i};
+      if size(varargin{i}, 2) == 3 % Edge locking is 3 columns
+         lock = double(varargin{i});
       elseif size(varargin{i}, 2) == 2 % 2-column array is sign constraint
          nneg = varargin{i};
       elseif size(varargin{i}, 2) == nTri % Big matrix is diff matrix
@@ -71,6 +71,7 @@ spos = false(nTri, 2);
 sneg = spos;
 dpos = spos;
 dneg = spos;
+
 if exist('nneg', 'var')
    for i = 1:size(nneg, 1)
       if nneg(i, 1) == 1
