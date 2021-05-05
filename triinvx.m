@@ -232,6 +232,7 @@ triD                                = find(tz(:) == 2); % Find those with dip-sl
 triT                                = find(tz(:) == 3); % Find those with tensile slip
 colkeep                             = setdiff(1:size(g, 2), [3*triD-0; 3*triT-1]);
 gt                                  = g(:, colkeep); % eliminate the columns for unused slip components
+tres                                = sum(gt.^2, 1)'; % Sum of triangular partials, for weighting regularization
 
 % Lock edges?
 if ~exist('Command', 'var') % Command structure only exists if triEdge was specified as input argument
@@ -250,7 +251,7 @@ if sum(beta)
    share = SideShare(p.v);
 
    % Make the smoothing matrix
-   sm = MakeTriSmoothAlt(share);
+   sm = MakeTriSmooth(share, ones(size(share)));
    sm = sm(colkeep, :);
    sm = sm(:, colkeep);
 else
@@ -268,6 +269,7 @@ else
    w                                = wd;
 end
 wc                                  = [w; Beta.*ones(size(sm, 1), 1)]; % add the triangular smoothing vector
+wc                                  = [w; Beta./tres]; % add the triangular smoothing vector
 wc                                  = [wc; 1e10*ones(size(Ztri, 1), 1)]; % add the zero edge vector
 Wc                                  = diag(wc); % assemble into a matrix
 

@@ -29,18 +29,18 @@ elseif nargin > 5 % If optional arguments were specified,
       end
    end
 end   
-
-% Apply lambdas across elements
-Lambda = zeros(2*nTri, 1);
-if numel(lambda) == 1
-   Lambda = Lambda + lambda;
-elseif numel(lambda) == numel(Patches.nEl)   
-   for i = 1:length(lambda)
-      Lambda(2*begs(i)-1:2*ends(i)) = lambda(i);
-   end
-else 
-   error('lambda should be a scalar applied to all faults or a vector with one value per fault.')   
-end
+%
+%Apply lambdas across elements
+%Lambda = zeros(2*nTri, 1);
+%if numel(lambda) == 1
+%   Lambda = Lambda + lambda;
+%elseif numel(lambda) == numel(Patches.nEl)   
+%   for i = 1:length(lambda)
+%      Lambda(2*begs(i)-1:2*ends(i)) = lambda(i);
+%   end
+%else 
+%   error('lambda should be a scalar applied to all faults or a vector with one value per fault.')   
+%end
   
 % Handle edge locking
 
@@ -98,11 +98,10 @@ end
 
 % Estimate slip
 n = size(A, 2);
-
 cvx_begin quiet
 variable x(n)
 % Minimization statement
-minimize( norm(A*x-b,2) + (lambda)*norm(Diff*x,1) )
+minimize( norm(A*x-b,2) + (lambda).*norm(Diff*x,1) )
 subject to 
     % Sign constraints
     x(dpos) >= 0;
