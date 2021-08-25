@@ -45,6 +45,12 @@ function [u, pred, gsave] = triinvx(p, s, beta, varargin)
 %    SCOMPONENTS = [0 0 0 1 1 1]. The default behavior is COMPONENTS = [1 1 1 1 1 1] 
 %    so that all tensor components are considered as constraining data in the inversion. 
 %
+%    TRIINV(..., 'stresstype', devflag) allows specification of whether full or deviatoric
+%    stress tensor components are given in the structure S. If devflag == 0 (or false), 
+%    the stress tensor components are assumed to be full, and if devflag ~= 0 (or true), 
+%    deviatoric components are assumed, and the Green's functions are modified by 
+%    subtracting the mean stress Green's functions from the normal stress components. 
+%
 %    TRIINV(..., 'lame', MODULI) allows specification of Lame parameters defining the 
 %    elasticity of the half-space. MODULI is a 2-element vector giving the Lame parameters
 %    lambda and mu.
@@ -87,6 +93,8 @@ if nargin > 3
          dcomp = varargin{i+1};
       elseif startsWith(varargin{i}, 'scomp')
          scomp = varargin{i+1};
+      elseif startsWith(varargin{i}, 'stresstype')
+         stresstype = logical(varargin{i+1});
       elseif startsWith(varargin{i}, 'lame')
          lame = varargin{i+1};
       elseif startsWith(varargin{i}, 'nneg')
@@ -196,6 +204,22 @@ if ~exist('g', 'var')
 else % Parse input partials
    gd                               = g(1:3*numsta, :); % First rows are displacements
    gs                               = g(end - (6*numstress - 1):end, :); % Last rows are stresses
+end
+
+% Check whether stress partials should be adjusted for deviatoric stresses
+if exist('stresstype', 'var')
+   if stresstype
+      % Take average of normal stress components
+      gsmeannorm = mean([gs(1:6:end, :), gs(2:6:end, :), gs(3:6:end, :)], 2);
+      gsmeannorm = repmat(gsmeannorm, 1, size(gs, 2));
+      % Place into array same size as gs
+      gsm = zeros(size(gs));
+      gsm(1:6:end, :) = gsmeannorm;
+      gsm(2:6:end, :) = gsmeannorm;
+      gsm(3:6:end, :) = gsmeannorm;
+      % Correct stress partials by subtracting mean stress
+      gs = gs - gsm;
+   end
 end
 
 % Determine which rows of partial derivative matrix to keep.
