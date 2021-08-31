@@ -135,10 +135,15 @@ else
    numstress = 0;
 end
 
+% Check for specification of displacement components to use
+if numsta > 0 && ~exist('dcomp', 'var')
+   dcomp = [1 1 1]; % Default is to use all components
+end
+
 % Add template vertical velocity and uncertainty, if need be
 if ~isfield(s, 'upVel')
    s.upVel                          = 0*s.eastVel;
-   dcomp                            = [1 1 0]; % Make sure not to use these for inversion
+   dcomp(3)                         = 0; % Make sure not to use these for inversion
 end
 if ~isfield(s, 'upSig')
    s.upSig                          = ones(numsta, 1);
@@ -228,12 +233,10 @@ end
 
 % dcomp is the optional variable that controls displacements, and it should be a 
 % 3-element vector with non-zero entries for those components that should be used.
-if exist('dcomp', 'var')
-   dcomp                            = repmat(dcomp(:), numsta, 1);
-   rowkeep                          = find(dcomp ~= 0);
-else
-   rowkeep                          = 1:3*numsta;
-end
+% 
+% If not specified as an input argument, it is set by default to use all 3 components.
+dcomp                               = repmat(dcomp(:), numsta, 1); % Replicate for all stations
+rowkeep                             = find(dcomp ~= 0);
 gsave                               = [gd; gs]; % Full partials for output   
 gd                                  = gd(rowkeep, :); % Trimmed displacement components
 
@@ -256,7 +259,7 @@ triD                                = find(tz(:) == 2); % Find those with dip-sl
 triT                                = find(tz(:) == 3); % Find those with tensile slip
 colkeep                             = setdiff(1:size(g, 2), [3*triD-0; 3*triT-1]);
 gt                                  = g(:, colkeep); % eliminate the columns for unused slip components
-tres                                = sum(gt.^2, 1)'; % Sum of triangular partials, for weighting regularization
+%tres                                = sum(gt.^2, 1)'; % Sum of triangular partials, for weighting regularization
 
 % Lock edges?
 if ~exist('Command', 'var') % Command structure only exists if triEdge was specified as input argument
@@ -275,9 +278,10 @@ if sum(beta)
    share = SideShare(p.v);
 
    % Make the smoothing matrix
-   sm = MakeTriSmooth(share, ones(size(share)));
+   sm = MakeTriSmoothAlt(share);
    sm = sm(colkeep, :);
    sm = sm(:, colkeep);
+   sm = full(sm);
 else
    sm                               = zeros(0, 3*size(p.v, 1));
 end
@@ -293,7 +297,7 @@ else
    w                                = wd;
 end
 wc                                  = [w; Beta.*ones(size(sm, 1), 1)]; % add the triangular smoothing vector
-wc                                  = [w; Beta./tres]; % add the triangular smoothing vector
+%wc                                  = [w; Beta./tres]; % add the triangular smoothing vector
 wc                                  = [wc; 1e10*ones(size(Ztri, 1), 1)]; % add the zero edge vector
 Wc                                  = diag(wc); % assemble into a matrix
 
