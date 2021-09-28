@@ -69,6 +69,14 @@ function [u, pred, gsave] = triinvx(p, s, beta, varargin)
 %    variation regularization rather than Laplacian smoothing. In this case, the 
 %    regularization strength is still controlled by input argument BETA.
 %
+%    TRIINV(..., 'vertthresh', VERT_ANG) allows specification of a threshold difference
+%    from vertical for elements to be considered vertically dipping. For example, if 
+%    elements with dips of 89.5 degrees or greater should be considered vertical, 
+%    specify VERT_ANG = 0.5. The default value is 1 degree. This means that all elements
+%    with dips of 89 degrees or greater will have strike-slip and tensile-slip estimated,
+%    while all elements with dips less than 89 degrees will have strike-slip and dip-slip
+%    estimated. 
+%
 %    *** Notes about input argument P: ***
 %    P can either be the path to a .msh file as written by the open-source meshing 
 %    program Gmsh, or a .mat file containing two variables "c" and "v".  c is an n-by-3 
@@ -103,6 +111,8 @@ if nargin > 3
          tvr = varargin{i+1};
       elseif startsWith(varargin{i}, 'outstruct')
          outstruct = varargin{i+1};
+      elseif startsWith(varargin{i}, 'vertthresh')
+         vertthresh = varargin{i+1};
       end
    end
 end
@@ -173,8 +183,11 @@ else
 end
 
 % Identify dipping and vertical elements
+if ~exist('vertthresh', 'var')
+   vertthresh = 1;
+end
 tz                                  = 3*ones(sum(p.nEl), 1); % By default, all are vertical (will zero out second component of slip)
-tz(abs(90-p.dip) > 1)               = 2; % Dipping elements are changed
+tz(abs(90-p.dip) > vertthresh)      = 2; % Dipping elements are changed
 
 % Check the length of beta and repeat if necessary
 if numel(beta) ~= numel(p.nEl)
