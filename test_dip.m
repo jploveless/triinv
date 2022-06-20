@@ -13,6 +13,12 @@ meshview(p.c, p.v, utrue(2:3:end));
 title('Input slip distribution');
 caxis([-1 1]);
 colormap(bluewhitered);
+% Add observed displacements
+hold on
+scale_factor = 50; % Manual scaling factor
+quiver(s.x, s.y, scale_factor*s.eastVel, scale_factor*s.northVel, 0); % Plot data as manually scaled vectors
+axis equal
+
 % Visualize estimated dip slip in a new figure
 meshview(p.c, p.v, u(2:3:end));
 title('Basic slip estimate, beta = 100');
@@ -23,6 +29,7 @@ hold on
 scale_factor = 50; % Manual scaling factor
 quiver(s.x, s.y, scale_factor*s.eastVel, scale_factor*s.northVel, 0); % Plot data as manually scaled vectors
 quiver(s.x, s.y, scale_factor*pred(1:3:end), scale_factor*pred(2:3:end), 0); % Plot predictions as manually scaled vectors
+axis equal
 
 %### Estimate with different smoothing weight, reusing the partial derivatives output in line 10
 [u_500, pred_500] = triinvx(p, s, 500, 'partials', gsave);
@@ -30,6 +37,13 @@ meshview(p.c, p.v, u_500(2:3:end));
 title('Basic slip estimate, beta = 500');
 caxis([-1 1]);
 colormap(bluewhitered);
+% Add observed and estimated displacements
+hold on
+scale_factor = 50; % Manual scaling factor
+quiver(s.x, s.y, scale_factor*s.eastVel, scale_factor*s.northVel, 0); % Plot data as manually scaled vectors
+quiver(s.x, s.y, scale_factor*pred_500(1:3:end), scale_factor*pred_500(2:3:end), 0); % Plot predictions as manually scaled vectors
+axis equal
+
 
 %### Estimate enforcing reverse slip
 
@@ -38,6 +52,13 @@ meshview(p.c, p.v, u_rev(2:3:end));
 title('Force reverse slip, beta = 100');
 caxis([-1 1]);
 colormap(bluewhitered);
+% Add observed and estimated displacements
+hold on
+scale_factor = 50; % Manual scaling factor
+quiver(s.x, s.y, scale_factor*s.eastVel, scale_factor*s.northVel, 0); % Plot data as manually scaled vectors
+quiver(s.x, s.y, scale_factor*pred_rev(1:3:end), scale_factor*pred_rev(2:3:end), 0); % Plot predictions as manually scaled vectors
+axis equal
+
 
 %### Estimate enforcing reverse slip and no slip at fault edges
 
@@ -46,6 +67,13 @@ meshview(p.c, p.v, u_rev_noedge(2:3:end));
 title('Force reverse slip, no edge slip, beta = 100');
 caxis([-1 1]);
 colormap(bluewhitered);
+% Add observed and estimated displacements
+hold on
+scale_factor = 50; % Manual scaling factor
+quiver(s.x, s.y, scale_factor*s.eastVel, scale_factor*s.northVel, 0); % Plot data as manually scaled vectors
+quiver(s.x, s.y, scale_factor*pred_rev_noedge(1:3:end), scale_factor*pred_rev_noedge(2:3:end), 0); % Plot predictions as manually scaled vectors
+axis equal
+
 
 %### Estimate using total variation regularization, outputs requested as structures
 if exist('cvx_begin') ~= 0
@@ -54,6 +82,13 @@ if exist('cvx_begin') ~= 0
    title('TVR, beta = 0.01');
    caxis([-1 1]);
    colormap(bluewhitered);
+   % Add observed and estimated displacements
+   hold on
+   scale_factor = 50; % Manual scaling factor
+   quiver(s.x, s.y, scale_factor*s.eastVel, scale_factor*s.northVel, 0); % Plot data as manually scaled vectors
+   quiver(s.x, s.y, scale_factor*pred_tvr(1:3:end), scale_factor*pred_tvr(2:3:end), 0); % Plot predictions as manually scaled vectors
+   axis equal
+   
    
    %### Estimate using total variation regularization, forcing reverse slip and no slip at edges, outputs requested as structures
    
@@ -62,6 +97,12 @@ if exist('cvx_begin') ~= 0
    title('TVR, force reverse slip, no edge slip, beta = 0.01');
    caxis([-1 1]);
    colormap(bluewhitered);
+   % Add observed and estimated displacements
+   hold on
+   scale_factor = 50; % Manual scaling factor
+   quiver(s.x, s.y, scale_factor*s.eastVel, scale_factor*s.northVel, 0); % Plot data as manually scaled vectors
+   quiver(s.x, s.y, scale_factor*pred_tvr_rev_noedge(1:3:end), scale_factor*pred_tvr_rev_noedge(2:3:end), 0); % Plot predictions as manually scaled vectors
+   axis equal
 else
    disp('CVX package not found.')
 end
