@@ -48,17 +48,20 @@ caxis([-1 1]);
 colormap(bluewhitered);
 
 %### Estimate using total variation regularization, outputs requested as structures
-
-[u_tvr, pred_tvr] = triinvx(p, s, 1e-2, 'tvr', true, 'outstruct', true, 'partials', gsave);
-meshview(p.c, p.v, u_tvr.dip);
-title('TVR, beta = 0.01');
-caxis([-1 1]);
-colormap(bluewhitered);
-
-%### Estimate using total variation regularization, forcing reverse slip and no slip at edges, outputs requested as structures
-
-[u_tvr_rev_noedge, pred_tvr_rev_noedge] = triinvx(p, s, 1e-2, 'tvr', true, 'lock', [1 1 1], 'nneg', [0 1], 'outstruct', true, 'partials', gsave);
-meshview(p.c, p.v, u_tvr_rev_noedge.dip);
-title('TVR, force reverse slip, no edge slip, beta = 0.01');
-caxis([-1 1]);
-colormap(bluewhitered);
+if exist('cvx_begin') ~= 0
+   [u_tvr, pred_tvr] = triinvx(p, s, 1e-2, 'tvr', true, 'outstruct', true, 'partials', gsave);
+   meshview(p.c, p.v, u_tvr.dip);
+   title('TVR, beta = 0.01');
+   caxis([-1 1]);
+   colormap(bluewhitered);
+   
+   %### Estimate using total variation regularization, forcing reverse slip and no slip at edges, outputs requested as structures
+   
+   [u_tvr_rev_noedge, pred_tvr_rev_noedge] = triinvx(p, s, 1e-2, 'tvr', true, 'lock', [1 1 1], 'nneg', [0 1], 'outstruct', true, 'partials', gsave);
+   meshview(p.c, p.v, u_tvr_rev_noedge.dip);
+   title('TVR, force reverse slip, no edge slip, beta = 0.01');
+   caxis([-1 1]);
+   colormap(bluewhitered);
+else
+   disp('CVX package not found.')
+end
