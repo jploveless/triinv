@@ -1,0 +1,11 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+authors:
+- family-names: "Loveless"
+  given-names: "J.P."
+  orcid: "https://orcid.org/0000-0000-0000-0000"
+title: "triinv: Inversion of displacement and stress data using triangular dislocation elements in Matlab"
+version: 1.1
+doi: 10.5281/zenodo.4142502
+date-released: 2023-09-22
+url: "https://github.com/jploveless/triinv"
